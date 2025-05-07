@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>XY文件转JSON工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .header {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .upload-section {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+            align-items: center;
+        }
+        .preview-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .json-preview {
+            width: 100%;
+            height: 300px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            font-family: monospace;
+            overflow: auto;
+            white-space: pre;
+            resize: vertical;
+        }
+        .format-options {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        input[type="file"] {
+            display: inline-block;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: white;
+        }
+        button {
+            padding: 8px 15px;
+            background-color: #1976d2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #1565c0;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .info-text {
+            margin-top: 5px;
+            font-size: 0.9em;
+            color: #666;
+        }
+        .radio-group {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+        .success {
+            background-color: #e8f5e9;
+            color: #388e3c;
+            display: block;
+        }
+        .error {
+            background-color: #ffebee;
+            color: #d32f2f;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>XY文件转JSON工具</h1>
+            <p>将XRD数据文件(.xy, .csv)转换为JSON格式</p>
+        </div>
+        
+        <div class="upload-section">
+            <input type="file" id="fileInput" accept=".xy,.csv" />
+            <button id="convertBtn" disabled>转换为JSON</button>
+            <div class="info-text">支持.xy和.csv格式的XRD数据文件</div>
+        </div>
+        
+        <div class="format-options">
+            <div class="radio-group">
+                <span>JSON格式：</span>
+                <div class="radio-option">
+                    <input type="radio" id="formatArray" name="format" value="array" checked>
+                    <label for="formatArray">数组格式 [[x,y], ...]</label>
+                </div>
+                <div class="radio-option">
+                    <input type="radio" id="formatObject" name="format" value="object">
+                    <label for="formatObject">对象格式 [{x:..., y:...}, ...]</label>
+                </div>
+            </div>
+        </div>
+        
+        <div id="status" class="status"></div>
+        
+        <div class="preview-section">
+            <h3>JSON预览</h3>
+            <pre id="jsonPreview" class="json-preview">请上传并转换文件以查看JSON预览</pre>
+            <div class="button-group">
+                <button id="downloadBtn" disabled>下载JSON文件</button>
+                <button id="copyBtn" disabled>复制到剪贴板</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentData = [];
+        let currentJsonString = '';
+        const fileInput = document.getElementById('fileInput');
+        const convertBtn = document.getElementById('convertBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const jsonPreview = document.getElementById('jsonPreview');
+        const statusDiv = document.getElementById('status');
+        
+        // 文件选择事件
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                convertBtn.disabled = false;
+                showStatus('info', `已选择文件: ${file.name}`);
+            } else {
+                convertBtn.disabled = true;
+                downloadBtn.disabled = true;
+                copyBtn.disabled = true;
+                jsonPreview.textContent = '请上传并转换文件以查看JSON预览';
+            }
+        });
+        
+        // 转换按钮事件
+        convertBtn.addEventListener('click', function() {
+            const file = fileInput.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const content = e.target.result;
+                    currentData = parseXYData(content);
+                    
+                    if (currentData.length === 0) {
+                        showStatus('error', '文件解析错误：未找到有效数据');
+                        return;
+                    }
+                    
+                    const formatType = document.querySelector('input[name="format"]:checked').value;
+                    currentJsonString = convertToJson(currentData, formatType);
+                    
+                    // 显示预览
+                    jsonPreview.textContent = currentJsonString;
+                    
+                    // 启用下载按钮
+                    downloadBtn.disabled = false;
+                    copyBtn.disabled = false;
+                    
+                    showStatus('success', `成功转换 ${currentData.length} 个数据点`);
+                } catch (error) {
+                    showStatus('error', `转换出错: ${error.message}`);
+                    jsonPreview.textContent = '转换过程中发生错误';
+                    downloadBtn.disabled = true;
+                    copyBtn.disabled = true;
+                }
+            };
+            
+            reader.onerror = function() {
+                showStatus('error', '读取文件时发生错误');
+            };
+            
+            reader.readAsText(file);
+        });
+        
+        // 下载按钮事件
+        downloadBtn.addEventListener('click', function() {
+            if (!currentJsonString) return;
+            
+            const blob = new Blob([currentJsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            
+            // 从原文件名获取基本名称
+            const originalFileName = fileInput.files[0].name;
+            const baseName = originalFileName.split('.')[0];
+            
+            link.href = url;
+            link.download = `${baseName}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            
+            showStatus('success', `已创建JSON文件: ${baseName}.json`);
+        });
+        
+        // 复制按钮事件
+        copyBtn.addEventListener('click', function() {
+            if (!currentJsonString) return;
+            
+            navigator.clipboard.writeText(currentJsonString)
+                .then(() => {
+                    showStatus('success', 'JSON数据已复制到剪贴板');
+                })
+                .catch(err => {
+                    showStatus('error', `复制失败: ${err}`);
+                });
+        });
+        
+        // 格式选择变更事件
+        document.querySelectorAll('input[name="format"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                if (currentData.length > 0) {
+                    const formatType = document.querySelector('input[name="format"]:checked').value;
+                    currentJsonString = convertToJson(currentData, formatType);
+                    jsonPreview.textContent = currentJsonString;
+                }
+            });
+        });
+        
+        // 解析XY数据
+        function parseXYData(content) {
+            return content.split('\n')
+                .map(line => line.trim().split(/\s*,\s*|\s+/)) // 支持逗号/空格/制表符分隔
+                .filter(items => items.length >= 2)
+                .map(items => [parseFloat(items[0]), parseFloat(items[1])])
+                .filter(([x, y]) => !isNaN(x) && !isNaN(y));
+        }
+        
+        // 转换为JSON
+        function convertToJson(data, format) {
+            let jsonData;
+            
+            if (format === 'object') {
+                // 对象格式: [{x: x1, y: y1}, {x: x2, y: y2}, ...]
+                jsonData = data.map(([x, y]) => ({ x, y }));
+            } else {
+                // 数组格式: [[x1, y1], [x2, y2], ...]
+                jsonData = data;
+            }
+            
+            // 使用JSON.stringify时不添加空格和换行
+            return JSON.stringify(jsonData);
+        }
+        
+        // 显示状态信息
+        function showStatus(type, message) {
+            statusDiv.textContent = message;
+            statusDiv.className = 'status';
+            
+            if (type === 'error') {
+                statusDiv.classList.add('error');
+            } else if (type === 'success') {
+                statusDiv.classList.add('success');
+            } else {
+                statusDiv.style.display = 'block';
+                statusDiv.style.backgroundColor = '#e3f2fd';
+                statusDiv.style.color = '#1565c0';
+            }
+            
+            // 5秒后自动隐藏成功和信息消息
+            if (type !== 'error') {
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+    </script>
+</body>
+</html> 

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>XRD Pattern Viewer</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.2/dist/echarts.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .header {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+        }
+        .chart-container {
+            position: relative;
+        }
+        input[type="file"] {
+            display: inline-block;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>X-Ray Diffraction (XRD) Pattern Viewer</h1>
+        </div>
+        
+        <div class="controls">
+            <input type="file" id="fileInput" accept=".xy,.csv" />
+        </div>
+        
+        <div class="chart-container">
+            <div id="chart" style="width: 100%; height: 600px;"></div>
+        </div>
+    </div>
+
+    <script>
+        let myChart = null;
+        let currentData = [];
+        let zoomTimer = null; // 用于缩放节流
+        
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                const data = parseXYData(content);
+                if (data.length === 0) {
+                    alert('File format error: Two columns of numeric data required');
+                    return;
+                }
+                currentData = data;
+                renderChart(data);
+            };
+            reader.readAsText(file);
+        });
+
+        function parseXYData(content) {
+            return content.split('\n')
+                .map(line => line.trim().split(/\s*,\s*|\s+/)) // 支持逗号/空格/制表符分隔
+                .filter(items => items.length >= 2)
+                .map(items => [parseFloat(items[0]), parseFloat(items[1])])
+                .filter(([x, y]) => !isNaN(x) && !isNaN(y));
+        }
+
+        // 更高效的数据预处理函数
+        function preprocessData(data, maxPoints = 2000) {
+            if (data.length <= maxPoints) return data;
+            
+            // 使用更高效的降采样方法
+            const result = [];
+            const step = Math.ceil(data.length / maxPoints);
+            
+            // 确保第一个点被保留
+            result.push(data[0]);
+            
+            // 使用简化的采样方法，提高性能
+            for (let i = step; i < data.length - step; i += step) {
+                // 找出这个区间的最大值点
+                let maxVal = data[i][1];
+                let maxIdx = i;
+                
+                for (let j = i; j < Math.min(i + step, data.length); j++) {
+                    if (data[j][1] > maxVal) {
+                        maxVal = data[j][1];
+                        maxIdx = j;
+                    }
+                }
+                
+                // 添加代表点和最大值点（如果不同）
+                if (i !== maxIdx) {
+                    result.push(data[i]);
+                    result.push(data[maxIdx]);
+                } else {
+                    result.push(data[i]);
+                }
+            }
+            
+            // 确保最后一个点被保留
+            if (result[result.length - 1] !== data[data.length - 1]) {
+                result.push(data[data.length - 1]);
+            }
+            
+            return result;
+        }
+
+        function renderChart(data) {
+            const chartDom = document.getElementById('chart');
+            if (myChart != null && myChart != undefined) {
+                myChart.dispose();
+            }
+            
+            // 使用渲染器选项提高性能
+            myChart = echarts.init(chartDom, null, {
+                renderer: 'canvas',
+                useDirtyRect: true // 使用脏矩形渲染提高性能
+            });
+            
+            // 预处理数据，减少点数但保留峰值
+            const processedData = preprocessData(data);
+            console.log(`原始数据点: ${data.length}, 处理后数据点: ${processedData.length}`);
+            
+            // 计算Y轴的最大值，根据数据的最大值自动设置
+            const maxIntensity = Math.max(...data.map(point => point[1]));
+            console.log("最大强度值:", maxIntensity);
+            
+            // 根据最大值计算合适的Y轴上限，确保有足够空间显示峰值
+            const yAxisMax = Math.ceil(maxIntensity * 1.1 / 10) * 10;
+            console.log("Y轴最大值设置为:", yAxisMax);
+            
+            const option = {
+                title: { 
+                    text: 'X-Ray Diffraction (XRD) Pattern',
+                    left: 'center',
+                    textStyle: {
+                        fontSize: 18,
+                        fontWeight: 'bold'
+                    }
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    formatter: (params) => 
+                        `2θ: ${params[0].value[0].toFixed(2)}°<br/>Intensity: ${params[0].value[1].toFixed(1)}`,
+                    confine: true, // 限制提示框在图表区域内
+                    enterable: false, // 禁止鼠标进入提示框
+                    showDelay: 0, // 立即显示提示框
+                    hideDelay: 50, // 快速隐藏提示框
+                    transitionDuration: 0 // 禁用提示框动画
+                },
+                grid: {
+                    left: '5%',
+                    right: '5%',
+                    bottom: '15%',
+                    top: '15%',
+                    containLabel: true
+                },
+                xAxis: {
+                    name: '2θ (°)',
+                    nameLocation: 'middle',
+                    nameGap: 30,
+                    type: 'value',
+                    min: Math.max(0, data[0][0]),
+                    max: data[data.length-1][0],
+                    axisLabel: { 
+                        formatter: '{value}°',
+                        fontSize: 12,
+                        showMaxLabel: true, // 确保显示最大值标签
+                        showMinLabel: true // 确保显示最小值标签
+                    },
+                    splitLine: {
+                        show: false // 隐藏X轴网格线
+                    },
+                    axisPointer: {
+                        snap: false, // 禁用吸附，提高性能
+                        label: {
+                            show: false // 隐藏轴指示器标签，提高性能
+                        }
+                    },
+                    animation: false // 禁用X轴动画，减少延迟
+                },
+                yAxis: {
+                    name: 'Intensity (a.u.)',
+                    nameRotate: 90,
+                    nameLocation: 'middle',
+                    nameGap: 40,
+                    type: 'value',
+                    min: 0,
+                    max: yAxisMax, // 使用根据数据计算的最大值
+                    scale: false, // 禁用自动缩放
+                    axisLabel: {
+                        fontSize: 12
+                    },
+                    splitNumber: 10, // 设置Y轴刻度数量
+                    splitLine: {
+                        show: false // 隐藏Y轴网格线
+                    },
+                    animation: false // 禁用Y轴动画，减少延迟
+                },
+                series: [{
+                    name: 'XRD',
+                    type: 'line',
+                    data: processedData,
+                    smooth: false,
+                    symbol: 'none',
+                    sampling: 'max', // 使用max采样，确保峰值被保留
+                    animation: true, // 仅保留初始加载动画
+                    animationDuration: 1000, 
+                    animationEasing: 'linear',
+                    hoverAnimation: false, // 禁用悬停动画
+                    lineStyle: { 
+                        width: 1.5,
+                        color: '#1976d2'
+                    },
+                    emphasis: {
+                        focus: 'none' // 禁用高亮效果
+                    },
+                    silent: false, // 保持交互功能
+                    large: true, // 启用大数据模式
+                    largeThreshold: 1000 // 大数据阈值
+                }],
+                dataZoom: [{
+                    type: 'slider',
+                    xAxisIndex: 0,
+                    start: 0,
+                    end: 100,
+                    bottom: '5%',
+                    height: 25,
+                    borderColor: 'transparent',
+                    backgroundColor: '#f5f5f5',
+                    fillerColor: 'rgba(25, 118, 210, 0.2)',
+                    handleIcon: 'path://M10.7,11.9v-1.3H9.3v1.3c-4.9,0.3-8.8,4.4-8.8,9.4c0,5,3.9,9.1,8.8,9.4v1.3h1.3v-1.3c4.9-0.3,8.8-4.4,8.8-9.4C19.5,16.3,15.6,12.2,10.7,11.9z M13.3,24.4H6.7V23h6.6V24.4z M13.3,19.6H6.7v-1.4h6.6V19.6z',
+                    handleSize: '80%',
+                    handleStyle: {
+                        color: '#1976d2',
+                        shadowBlur: 3,
+                        shadowColor: 'rgba(0, 0, 0, 0.6)',
+                        shadowOffsetX: 2,
+                        shadowOffsetY: 2
+                    },
+                    throttle: 0, // 禁用节流，立即响应
+                    zoomLock: false,
+                    moveOnMouseMove: true, // 鼠标移动时实时更新
+                    animation: false, // 禁用动画，减少延迟
+                    animationDurationUpdate: 0 // 禁用更新动画
+                }, {
+                    type: 'inside',
+                    xAxisIndex: 0,
+                    start: 0,
+                    end: 100,
+                    zoomOnMouseWheel: true, // 允许直接使用鼠标滚轮缩放
+                    moveOnMouseMove: true, // 鼠标移动时实时更新
+                    moveOnMouseWheel: true, // 允许鼠标滚轮平移
+                    throttle: 0, // 禁用节流，立即响应
+                    animation: false, // 禁用动画，减少延迟
+                    animationDurationUpdate: 0 // 禁用更新动画
+                }],
+                toolbox: {
+                    right: '20px',
+                    top: '20px',
+                    itemSize: 24,
+                    itemGap: 10,
+                    feature: {
+                        saveAsImage: {
+                            title: 'Save Image',
+                            icon: 'path://M4.7,22.9L29.3,45.5L54.7,23.4M4.6,43.6L4.6,58L53.8,58L53.8,43.6M29.2,45.1L29.2,0'
+                        },
+                        myTool1: {
+                            show: true,
+                            title: 'Reset Zoom',
+                            icon: 'path://M12,0 C18.6274,0 24,5.37258 24,12 C24,18.6274 18.6274,24 12,24 C5.37258,24 0,18.6274 0,12 C0,5.37258 5.37258,0 12,0 Z M16,8 L10,8 L10,6 L6,12 L10,18 L10,16 L16,16 L16,8 Z',
+                            iconStyle: {
+                                color: '#ffffff',
+                                backgroundColor: '#1976d2',
+                                borderColor: '#1976d2',
+                                borderWidth: 0,
+                                shadowBlur: 3,
+                                shadowColor: 'rgba(0,0,0,0.2)',
+                                shadowOffsetX: 1,
+                                shadowOffsetY: 1
+                            },
+                            onclick: function() {
+                                myChart.dispatchAction({
+                                    type: 'dataZoom',
+                                    start: 0,
+                                    end: 100
+                                });
+                            }
+                        }
+                    }
+                },
+                animation: true, // 仅保留初始加载动画
+                animationThreshold: 5000,
+                animationDuration: 1000,
+                animationEasing: 'linear',
+                animationDurationUpdate: 0, // 禁用更新动画
+                progressive: 500,
+                progressiveThreshold: 2000,
+                progressiveChunkMode: 'sequential',
+                hoverLayerThreshold: Infinity, // 禁用悬停层，提高性能
+                useUTC: false // 禁用UTC时间转换，提高性能
+            };
+
+            myChart.setOption(option);
+            
+            // 优化缩放事件处理
+            myChart.on('datazoom', function(params) {
+                // 使用requestAnimationFrame优化渲染
+                if (zoomTimer) {
+                    cancelAnimationFrame(zoomTimer);
+                }
+                
+                zoomTimer = requestAnimationFrame(function() {
+                    // 缩放时不做额外处理，保持性能
+                    zoomTimer = null;
+                });
+            });
+            
+            // 响应窗口大小变化
+            window.addEventListener('resize', function() {
+                if (myChart) {
+                    myChart.resize();
+                }
+            });
+        }
+    </script>
+</body>
+</html>

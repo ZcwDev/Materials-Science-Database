@@ -1,0 +1,44 @@
+# MacOS系统文件
+**/.DS_Store
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# 编译输出目录
+MCMD_frontend/dist/
+MCMD_frontend/node_modules/
+**/target/
+target/
+
+# IDE文件
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.sublime-workspace
+*.sublime-project
+
+# 日志文件
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 依赖目录
+node_modules/
+jspm_packages/
+
+# 环境配置
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 其他
+.sass-cache/
+.tmp/
+.temp/
